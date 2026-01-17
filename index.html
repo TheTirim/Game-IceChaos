@@ -39,12 +39,22 @@
       font-size: 0.9rem;
       opacity: 0.7;
     }
+
+    #imprint {
+      margin-top: 8px;
+      font-size: 12px;
+      opacity: 0.7;
+      color: rgba(240, 248, 255, 0.8);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+      user-select: none;
+    }
   </style>
 </head>
 <body>
   <div class="frame">
     <canvas id="game" width="900" height="500" aria-label="Ice Chaos Canvas"></canvas>
-    <div class="hint">W/S or ↑/↓ to move • Space/Enter to start • H for highscores • Esc to menu</div>
+    <div class="hint">W/S or ↑/↓, A/D or ←/→ to move • Space/Enter to start • H for highscores • Esc to menu</div>
+    <div id="imprint">© 2026 theTirim</div>
   </div>
 
   <script>
@@ -99,13 +109,16 @@
     const input = {
       up: false,
       down: false,
+      left: false,
+      right: false,
     };
 
     let state = GAME_STATE.MENU;
     let obstacles = [];
     let spawnTimer = 0;
-    let baseSpeed = 180;
-    let worldSpeed = baseSpeed;
+    const WORLD_SPEED_START = 420;
+    const WORLD_SPEED_MAX = 820;
+    let worldSpeed = WORLD_SPEED_START;
     let elapsedTime = 0;
     let highscores = [];
     let isEnteringName = false;
@@ -133,15 +146,18 @@
       y: 250,
       w: 80,
       h: 80,
-      speed: 320,
     };
+
+    const PLAYER_SPEED_X = 520;
+    const PLAYER_SPEED_Y = 520;
 
     const PLAYER_COLLIDER_SCALE_X = 0.78;
     const PLAYER_COLLIDER_SCALE_Y = 0.78;
     const PLAYER_COLLIDER_OFFSET_X = 0;
     const PLAYER_COLLIDER_OFFSET_Y = 0;
 
-    const ICE_COLLIDER_SCALE_X = 0.62;
+    const ICE_COLLIDER_SCALE_X_TOP = 0.48;
+    const ICE_COLLIDER_SCALE_X_BOTTOM = 0.62;
     const ICE_COLLIDER_SCALE_Y = 0.9;
     const ICE_COLLIDER_OFFSET_X = 0;
     const ICE_COLLIDER_OFFSET_Y = 0;
@@ -154,19 +170,27 @@
     function resetGame() {
       obstacles = [];
       spawnTimer = 0;
-      baseSpeed = 180;
-      worldSpeed = baseSpeed;
+      worldSpeed = WORLD_SPEED_START;
       elapsedTime = 0;
+      player.x = 120;
       player.y = CANVAS_H / 2;
       freeze = false;
       stepRequested = false;
     }
 
     function clamp(value, min, max) {
-      return Math.min(Math.max(value, min), max);
+      return Math.max(min, Math.min(max, value));
     }
 
-    function randomRange(min, max) {
+    function clamp01(value) {
+      return clamp(value, 0, 1);
+    }
+
+    function lerp(a, b, t) {
+      return a + (b - a) * t;
+    }
+
+    function randRange(min, max) {
       return Math.random() * (max - min) + min;
     }
 
@@ -254,28 +278,52 @@
     }
 
     function spawnObstacle(forced = false) {
-      const from = Math.random() > 0.5 ? "top" : "bottom";
-      const difficultyScale = clamp(1 + (worldSpeed - baseSpeed) * 0.003, 1, 1.6);
-      const h = Math.round(randomRange(120, 280) * difficultyScale);
-      const img = sprites.iceberg;
-      const aspect = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : 0.5;
-      const w = Math.max(28, Math.round(h * aspect));
-      const y = from === "bottom" ? CANVAS_H - h : 0;
+      const isSnowball = Math.random() < 0.3;
 
-      obstacles.push({
-        x: CANVAS_W + w,
-        y,
-        w,
-        h,
-        from,
-      });
+      if (isSnowball) {
+        let y = randRange(80, CANVAS_H - 80);
+        let tries = 0;
+        while (Math.abs(y - player.y) < 60 && tries < 5) {
+          y = randRange(80, CANVAS_H - 80);
+          tries += 1;
+        }
+        const size = Math.round(randRange(40, 56));
+        obstacles.push({
+          type: "snowball",
+          x: CANVAS_W + 40,
+          y,
+          w: size,
+          h: size,
+          vx: worldSpeed * 1.05,
+          vy: (Math.random() < 0.5 ? -1 : 1) * randRange(140, 240),
+        });
+      } else {
+        const from = Math.random() > 0.5 ? "top" : "bottom";
+        const difficultyScale = clamp(1 + (worldSpeed - WORLD_SPEED_START) * 0.003, 1, 1.6);
+        const h = Math.round(randRange(120, 280) * difficultyScale);
+        const img = sprites.iceberg;
+        const aspect = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : 0.5;
+        const w = Math.max(28, Math.round(h * aspect));
+        const y = from === "bottom" ? CANVAS_H - h : 0;
 
-      if (debugEnabled || forced) {
-        console.log("Spawn obstacle", { from, w, h, speed: worldSpeed });
+        obstacles.push({
+          type: "iceberg",
+          x: CANVAS_W + w,
+          y,
+          w,
+          h,
+          from,
+        });
       }
 
-      const baseInterval = clamp(1.2 - (worldSpeed - baseSpeed) * 0.0025, 0.5, 1.2);
-      spawnTimer = randomRange(baseInterval, baseInterval + 0.6);
+      if (debugEnabled || forced) {
+        console.log("Spawn obstacle", { type: isSnowball ? "snowball" : "iceberg", speed: worldSpeed });
+      }
+
+      const tNorm = clamp01((worldSpeed - WORLD_SPEED_START) / (WORLD_SPEED_MAX - WORLD_SPEED_START));
+      const minInterval = lerp(0.85, 0.55, tNorm);
+      const maxInterval = lerp(1.25, 0.95, tNorm);
+      spawnTimer = randRange(minInterval, maxInterval);
     }
 
     function aabbIntersect(a, b) {
@@ -317,7 +365,20 @@
     }
 
     function getObstacleCollider(obstacle) {
-      const cw = obstacle.w * ICE_COLLIDER_SCALE_X;
+      if (obstacle.type === "snowball") {
+        const scale = 0.7;
+        const cw = obstacle.w * scale;
+        const ch = obstacle.h * scale;
+        return {
+          x: obstacle.x + (obstacle.w - cw) / 2,
+          y: obstacle.y + (obstacle.h - ch) / 2,
+          w: cw,
+          h: ch,
+        };
+      }
+      const scaleX =
+        obstacle.from === "top" ? ICE_COLLIDER_SCALE_X_TOP : ICE_COLLIDER_SCALE_X_BOTTOM;
+      const cw = obstacle.w * scaleX;
       const ch = obstacle.h * ICE_COLLIDER_SCALE_Y;
       return {
         x: obstacle.x + (obstacle.w - cw) / 2 + ICE_COLLIDER_OFFSET_X,
@@ -343,28 +404,46 @@
         return;
       }
 
-      const movement = player.speed * dt;
-      if (input.up) {
-        player.y -= movement;
-      }
-      if (input.down) {
-        player.y += movement;
-      }
+      player.x += (input.right - input.left) * PLAYER_SPEED_X * dt;
+      player.y += (input.down - input.up) * PLAYER_SPEED_Y * dt;
 
-      const halfH = player.h / 2;
-      player.y = clamp(player.y, 10 + halfH, CANVAS_H - halfH - 10);
+      const minX = 60;
+      const maxX = CANVAS_W * 0.45;
+      const minY = 40;
+      const maxY = CANVAS_H - 40;
+      player.x = clamp(player.x, minX, maxX);
+      player.y = clamp(player.y, minY, maxY);
 
-      worldSpeed += dt * 3.2;
       elapsedTime += dt;
+      worldSpeed = WORLD_SPEED_START + elapsedTime * 18;
+      worldSpeed = Math.min(worldSpeed, WORLD_SPEED_MAX);
 
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
         spawnObstacle();
       }
 
-      obstacles = obstacles.filter((obstacle) => obstacle.x + obstacle.w > -40);
+      obstacles = obstacles.filter((obstacle) => {
+        const cutoff = obstacle.type === "snowball" ? -50 : -40;
+        return obstacle.x + obstacle.w > cutoff;
+      });
       obstacles.forEach((obstacle) => {
-        obstacle.x -= worldSpeed * dt;
+        if (obstacle.type === "snowball") {
+          obstacle.x -= obstacle.vx * dt;
+          obstacle.y += obstacle.vy * dt;
+          const topBound = 60;
+          const bottomBound = CANVAS_H - 60 - obstacle.h;
+          if (obstacle.y < topBound) {
+            obstacle.y = topBound;
+            obstacle.vy = Math.abs(obstacle.vy) * randRange(0.85, 1.15);
+          }
+          if (obstacle.y > bottomBound) {
+            obstacle.y = bottomBound;
+            obstacle.vy = -Math.abs(obstacle.vy) * randRange(0.85, 1.15);
+          }
+        } else {
+          obstacle.x -= worldSpeed * dt;
+        }
         const playerBox = getPlayerCollider();
         const obstacleBox = getObstacleCollider(obstacle);
         if (!godMode && aabbIntersect(playerBox, obstacleBox)) {
@@ -409,6 +488,15 @@
     }
 
     function drawObstacle(obstacle) {
+      if (obstacle.type === "snowball") {
+        ctx.save();
+        ctx.font = `${obstacle.h}px system-ui`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillText("⚪️", obstacle.x, obstacle.y);
+        ctx.restore();
+        return;
+      }
       if (USE_SPRITES && sprites.iceberg.complete && sprites.iceberg.naturalWidth > 0) {
         const img = sprites.iceberg;
         // Flip iceberg.png for top spikes (same asset, mirrored vertically)
@@ -697,6 +785,7 @@
         `worldSpeed: ${worldSpeed.toFixed(1)}`,
         `spawnTimer: ${spawnTimer.toFixed(2)}`,
         `obstacleCount: ${obstacles.length}`,
+        `snowballCount: ${obstacles.filter((obstacle) => obstacle.type === "snowball").length}`,
         `elapsedTime: ${elapsedTime.toFixed(2)}`,
         `godMode: ${godMode}`,
         `slowMoFactor: ${slowMoFactor}`,
@@ -835,6 +924,14 @@
         case "KeyS":
           input.down = true;
           break;
+        case "ArrowLeft":
+        case "KeyA":
+          input.left = true;
+          break;
+        case "ArrowRight":
+        case "KeyD":
+          input.right = true;
+          break;
         case "Space":
         case "Enter":
           if (state === GAME_STATE.MENU || state === GAME_STATE.GAME_OVER) {
@@ -863,7 +960,6 @@
           }
           break;
         case "F3":
-        case "KeyD":
           debugEnabled = !debugEnabled;
           break;
         case "KeyG":
@@ -905,6 +1001,14 @@
         case "ArrowDown":
         case "KeyS":
           input.down = false;
+          break;
+        case "ArrowLeft":
+        case "KeyA":
+          input.left = false;
+          break;
+        case "ArrowRight":
+        case "KeyD":
+          input.right = false;
           break;
         default:
           break;
