@@ -9,7 +9,7 @@ A fast-paced 2D endless runner where you control a penguin through an icy cave, 
 <video src="video/test.mp4" controls width="800"></video>
 
 ### Screenshot
-![Gameplay Screenshot](screenshoot/screenshot.png)
+![Gameplay Screenshot](screenshot/screenshot.png)
 
 The gameplay video is stored directly in the repository and embedded using HTML `<video>` for GitHub preview.
 
