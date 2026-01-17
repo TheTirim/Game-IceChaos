@@ -344,6 +344,63 @@
       );
     }
 
+    function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+      const v0x = cx - ax;
+      const v0y = cy - ay;
+      const v1x = bx - ax;
+      const v1y = by - ay;
+      const v2x = px - ax;
+      const v2y = py - ay;
+      const dot00 = v0x * v0x + v0y * v0y;
+      const dot01 = v0x * v1x + v0y * v1y;
+      const dot02 = v0x * v2x + v0y * v2y;
+      const dot11 = v1x * v1x + v1y * v1y;
+      const dot12 = v1x * v2x + v1y * v2y;
+      const invDenom = 1 / (dot00 * dot11 - dot01 * dot01);
+      const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+      const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+      return u >= 0 && v >= 0 && u + v <= 1;
+    }
+
+    function rectContainsPoint(rect, px, py) {
+      return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
+    }
+
+    function triIntersectsRect(tri, rect) {
+      const rectPoints = [
+        { x: rect.x, y: rect.y },
+        { x: rect.x + rect.w, y: rect.y },
+        { x: rect.x + rect.w, y: rect.y + rect.h },
+        { x: rect.x, y: rect.y + rect.h },
+      ];
+      for (const point of rectPoints) {
+        if (
+          pointInTriangle(
+            point.x,
+            point.y,
+            tri.ax,
+            tri.ay,
+            tri.bx,
+            tri.by,
+            tri.cx,
+            tri.cy
+          )
+        ) {
+          return true;
+        }
+      }
+      if (rectContainsPoint(rect, tri.ax, tri.ay)) {
+        return true;
+      }
+      if (rectContainsPoint(rect, tri.bx, tri.by)) {
+        return true;
+      }
+      if (rectContainsPoint(rect, tri.cx, tri.cy)) {
+        return true;
+      }
+      return false;
+    }
+
     function getPlayerRenderBox() {
       return {
         x: player.x - player.w / 2,
@@ -394,6 +451,46 @@
         y: obstacle.y + (obstacle.h - ch) / 2 + ICE_COLLIDER_OFFSET_Y,
         w: cw,
         h: ch,
+      };
+    }
+
+    function getIcebergParts(obstacle) {
+      const bodyW = obstacle.w * 0.55;
+      const bodyH = obstacle.h * 0.72;
+      const bodyX = obstacle.x + (obstacle.w - bodyW) / 2;
+      const bodyY = obstacle.from === "bottom" ? obstacle.y + obstacle.h - bodyH : obstacle.y;
+      const tipW = obstacle.w * 0.42;
+      const tipH = obstacle.h * 0.3;
+      const tipXCenter = obstacle.x + obstacle.w / 2;
+      let ax;
+      let ay;
+      let bx;
+      let by;
+      let cx;
+      let cy;
+      if (obstacle.from === "bottom") {
+        ax = tipXCenter;
+        ay = obstacle.y;
+        bx = tipXCenter - tipW / 2;
+        by = obstacle.y + tipH;
+        cx = tipXCenter + tipW / 2;
+        cy = obstacle.y + tipH;
+      } else {
+        ax = tipXCenter;
+        ay = obstacle.y + obstacle.h;
+        bx = tipXCenter - tipW / 2;
+        by = obstacle.y + obstacle.h - tipH;
+        cx = tipXCenter + tipW / 2;
+        cy = obstacle.y + obstacle.h - tipH;
+      }
+      return {
+        bodyRect: {
+          x: bodyX,
+          y: bodyY,
+          w: bodyW,
+          h: bodyH,
+        },
+        tipTri: { ax, ay, bx, by, cx, cy },
       };
     }
 
@@ -454,8 +551,17 @@
           obstacle.x -= worldSpeed * dt;
         }
         const playerBox = getPlayerCollider();
-        const obstacleBox = getObstacleCollider(obstacle);
-        if (!godMode && aabbIntersect(playerBox, obstacleBox)) {
+        let hit = false;
+        if (obstacle.type === "iceberg") {
+          const parts = getIcebergParts(obstacle);
+          hit =
+            aabbIntersect(playerBox, parts.bodyRect) ||
+            triIntersectsRect(parts.tipTri, playerBox);
+        } else {
+          const obstacleBox = getObstacleCollider(obstacle);
+          hit = aabbIntersect(playerBox, obstacleBox);
+        }
+        if (!godMode && hit) {
           if (debugEnabled) {
             console.log("Collision", { player: { ...player }, obstacle: { ...obstacle } });
           }
@@ -563,13 +669,27 @@
       );
       ctx.strokeStyle = "rgba(255, 80, 80, 0.9)";
       obstacles.forEach((obstacle) => {
-        const obstacleColliderBox = getObstacleCollider(obstacle);
-        ctx.strokeRect(
-          obstacleColliderBox.x,
-          obstacleColliderBox.y,
-          obstacleColliderBox.w,
-          obstacleColliderBox.h
-        );
+        if (obstacle.type === "iceberg") {
+          const parts = getIcebergParts(obstacle);
+          ctx.strokeStyle = "rgba(255, 214, 102, 0.95)";
+          ctx.strokeRect(parts.bodyRect.x, parts.bodyRect.y, parts.bodyRect.w, parts.bodyRect.h);
+          ctx.strokeStyle = "rgba(96, 236, 255, 0.95)";
+          ctx.beginPath();
+          ctx.moveTo(parts.tipTri.ax, parts.tipTri.ay);
+          ctx.lineTo(parts.tipTri.bx, parts.tipTri.by);
+          ctx.lineTo(parts.tipTri.cx, parts.tipTri.cy);
+          ctx.closePath();
+          ctx.stroke();
+        } else {
+          const obstacleColliderBox = getObstacleCollider(obstacle);
+          ctx.strokeStyle = "rgba(255, 80, 80, 0.9)";
+          ctx.strokeRect(
+            obstacleColliderBox.x,
+            obstacleColliderBox.y,
+            obstacleColliderBox.w,
+            obstacleColliderBox.h
+          );
+        }
       });
     }
 
