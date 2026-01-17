@@ -3,6 +3,16 @@
 ## Description
 A fast-paced 2D endless runner where you control a penguin through an icy cave, dodging icebergs and flying snowballs while the speed constantly increases.
 
+## Preview
+
+### Gameplay Video
+<video src="video/test.mp4" controls width="800"></video>
+
+### Screenshot
+![Gameplay Screenshot](screenshoot/screenshot.png)
+
+The gameplay video is stored directly in the repository and embedded using HTML `<video>` for GitHub preview.
+
 ## Features
 - 2D side-scrolling endless runner
 - Stylized cartoon ice cave background
