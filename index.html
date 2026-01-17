@@ -44,7 +44,7 @@
 <body>
   <div class="frame">
     <canvas id="game" width="900" height="500" aria-label="Ice Chaos Canvas"></canvas>
-    <div class="hint">W/S or ↑/↓ to move • Space/Enter to start • Esc to menu</div>
+    <div class="hint">W/S or ↑/↓ to move • Space/Enter to start • H for highscores • Esc to menu</div>
   </div>
 
   <script>
@@ -93,6 +93,7 @@
       MENU: "MENU",
       PLAYING: "PLAYING",
       GAME_OVER: "GAME_OVER",
+      HIGHSCORES: "HIGHSCORES",
     };
 
     const input = {
@@ -106,13 +107,26 @@
     let baseSpeed = 180;
     let worldSpeed = baseSpeed;
     let elapsedTime = 0;
-    let highscore = Number.parseFloat(localStorage.getItem("iceChaosHighscore")) || 0;
+    let highscores = [];
+    let isEnteringName = false;
+    let nameInput = "";
+    let lastScore = 0;
+    let quitHint = "";
+    let quitHintTimer = 0;
 
     let debugEnabled = false;
     let godMode = false;
     let slowMoFactor = 1.0;
     let freeze = false;
     let stepRequested = false;
+
+    const mouse = {
+      x: 0,
+      y: 0,
+      inside: false,
+    };
+
+    let currentButtons = [];
 
     const player = {
       x: 120,
@@ -168,6 +182,75 @@
       const dx = x + (w - drawW) / 2;
       const dy = y + (h - drawH) / 2;
       ctx.drawImage(img, dx, dy, drawW, drawH);
+    }
+
+    function drawPanel(x, y, w, h) {
+      ctx.save();
+      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      ctx.strokeStyle = "rgba(255,255,255,0.15)";
+      ctx.lineWidth = 1;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      ctx.restore();
+    }
+
+    function applyUITextStyle() {
+      ctx.fillStyle = "rgba(240,248,255,0.95)";
+      ctx.shadowColor = "rgba(0,0,0,0.6)";
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 2;
+    }
+
+    function resetUITextStyle() {
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+    }
+
+    function loadHighscores() {
+      const raw = localStorage.getItem("iceChaosHighscores");
+      if (!raw) {
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (error) {
+        console.warn("Failed to parse highscores", error);
+        return [];
+      }
+    }
+
+    function saveHighscores(list) {
+      localStorage.setItem("iceChaosHighscores", JSON.stringify(list));
+    }
+
+    function getBestScore() {
+      return highscores.length > 0 ? highscores[0].score : 0;
+    }
+
+    function isHighscore(score) {
+      if (highscores.length < 10) {
+        return true;
+      }
+      const worst = highscores[highscores.length - 1]?.score ?? 0;
+      return score > worst;
+    }
+
+    function addHighscore(name, score) {
+      const entryName = name.trim() || "Player";
+      const entry = {
+        name: entryName,
+        score,
+        date: new Date().toISOString(),
+      };
+      const next = [...highscores, entry]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10);
+      highscores = next;
+      saveHighscores(next);
     }
 
     function spawnObstacle(forced = false) {
@@ -246,9 +329,12 @@
 
     function handleGameOver() {
       state = GAME_STATE.GAME_OVER;
-      if (elapsedTime > highscore) {
-        highscore = elapsedTime;
-        localStorage.setItem("iceChaosHighscore", highscore.toFixed(1));
+      lastScore = elapsedTime;
+      if (isHighscore(elapsedTime)) {
+        isEnteringName = true;
+        nameInput = "";
+      } else {
+        isEnteringName = false;
       }
     }
 
@@ -386,27 +472,217 @@
       });
     }
 
-    function drawUI() {
-      ctx.fillStyle = "#e6f0ff";
+    function hitTest(button, x, y) {
+      return x >= button.x && x <= button.x + button.w && y >= button.y && y <= button.y + button.h;
+    }
+
+    function renderButtons(buttons) {
+      currentButtons = buttons;
+      buttons.forEach((button) => {
+        const hovered = mouse.inside && hitTest(button, mouse.x, mouse.y);
+        drawPanel(button.x, button.y, button.w, button.h);
+        ctx.save();
+        if (hovered) {
+          ctx.strokeStyle = "rgba(255,255,255,0.35)";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(button.x + 1, button.y + 1, button.w - 2, button.h - 2);
+        }
+        applyUITextStyle();
+        ctx.font = "18px \"Segoe UI\", sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(button.label, button.x + button.w / 2, button.y + button.h / 2);
+        resetUITextStyle();
+        ctx.restore();
+      });
+    }
+
+    function drawHUD() {
+      const panelWidth = 220;
+      const panelHeight = 72;
+      drawPanel(16, 16, panelWidth, panelHeight);
+      applyUITextStyle();
+      ctx.font = "16px \"Segoe UI\", sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(`Score: ${elapsedTime.toFixed(1)}s`, 28, 24);
+      ctx.fillText(`Best: ${getBestScore().toFixed(1)}s`, 28, 44);
+      ctx.fillText("Esc = Menu", 28, 64);
+      resetUITextStyle();
+    }
+
+    function drawMenu() {
+      const panelWidth = 420;
+      const panelHeight = 260;
+      const panelX = (CANVAS_W - panelWidth) / 2;
+      const panelY = (CANVAS_H - panelHeight) / 2 - 20;
+      drawPanel(panelX, panelY, panelWidth, panelHeight);
+      applyUITextStyle();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "46px \"Segoe UI\", sans-serif";
+      ctx.fillText("Ice Chaos", CANVAS_W / 2, panelY + 60);
+      ctx.font = "18px \"Segoe UI\", sans-serif";
+      ctx.fillText(`Best: ${getBestScore().toFixed(1)}s`, CANVAS_W / 2, panelY + 100);
+      if (quitHint) {
+        ctx.fillText(quitHint, CANVAS_W / 2, panelY + 130);
+      }
+      resetUITextStyle();
+
+      const buttonWidth = 180;
+      const buttonHeight = 44;
+      const spacing = 14;
+      const startY = panelY + 150;
+      const centerX = CANVAS_W / 2 - buttonWidth / 2;
+      const buttons = [
+        {
+          label: "Start",
+          x: centerX,
+          y: startY,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => startGame(),
+        },
+        {
+          label: "Highscores",
+          x: centerX,
+          y: startY + buttonHeight + spacing,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => openHighscores(),
+        },
+        {
+          label: "Quit",
+          x: centerX,
+          y: startY + (buttonHeight + spacing) * 2,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => showQuitHint(),
+        },
+      ];
+      renderButtons(buttons);
+    }
+
+    function drawGameOver() {
+      const panelWidth = 460;
+      const panelHeight = 260;
+      const panelX = (CANVAS_W - panelWidth) / 2;
+      const panelY = (CANVAS_H - panelHeight) / 2 - 20;
+      drawPanel(panelX, panelY, panelWidth, panelHeight);
+      applyUITextStyle();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "36px \"Segoe UI\", sans-serif";
+      ctx.fillText("Game Over", CANVAS_W / 2, panelY + 50);
+      ctx.font = "18px \"Segoe UI\", sans-serif";
+      ctx.fillText(`Score: ${lastScore.toFixed(1)}s`, CANVAS_W / 2, panelY + 90);
+
+      if (isEnteringName) {
+        ctx.fillText("New Highscore! Enter your name:", CANVAS_W / 2, panelY + 125);
+        const inputWidth = 220;
+        const inputHeight = 36;
+        const inputX = CANVAS_W / 2 - inputWidth / 2;
+        const inputY = panelY + 145;
+        drawPanel(inputX, inputY, inputWidth, inputHeight);
+        const displayName = nameInput || " ";
+        ctx.font = "18px \"Segoe UI\", sans-serif";
+        ctx.textBaseline = "middle";
+        ctx.fillText(displayName, CANVAS_W / 2, inputY + inputHeight / 2);
+      }
+      resetUITextStyle();
+
+      const buttonWidth = 150;
+      const buttonHeight = 40;
+      const spacing = 12;
+      const startY = panelY + 190;
+      const startX = CANVAS_W / 2 - (buttonWidth * 1.5 + spacing);
+      const buttons = [
+        {
+          label: "Retry",
+          x: startX,
+          y: startY,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => startGame(),
+        },
+        {
+          label: "Menu",
+          x: startX + buttonWidth + spacing,
+          y: startY,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => returnToMenu(),
+        },
+        {
+          label: "Highscores",
+          x: startX + (buttonWidth + spacing) * 2,
+          y: startY,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => openHighscores(),
+        },
+      ];
+      renderButtons(buttons);
+    }
+
+    function drawHighscores() {
+      const panelWidth = 520;
+      const panelHeight = 320;
+      const panelX = (CANVAS_W - panelWidth) / 2;
+      const panelY = (CANVAS_H - panelHeight) / 2 - 20;
+      drawPanel(panelX, panelY, panelWidth, panelHeight);
+      applyUITextStyle();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "32px \"Segoe UI\", sans-serif";
+      ctx.fillText("Highscores", CANVAS_W / 2, panelY + 40);
+
       ctx.font = "18px \"Segoe UI\", sans-serif";
       ctx.textAlign = "left";
-      ctx.fillText(`Score: ${elapsedTime.toFixed(1)}`, 20, 28);
-      ctx.fillText(`Highscore: ${highscore.toFixed(1)}`, 20, 50);
-
-      if (state === GAME_STATE.MENU) {
-        ctx.font = "42px \"Segoe UI\", sans-serif";
+      const listX = panelX + 40;
+      const listY = panelY + 70;
+      const lineHeight = 24;
+      if (highscores.length === 0) {
         ctx.textAlign = "center";
-        ctx.fillText("Ice Chaos", CANVAS_W / 2, CANVAS_H / 2 - 60);
-        ctx.font = "20px \"Segoe UI\", sans-serif";
-        ctx.fillText("Press Space or Enter to start", CANVAS_W / 2, CANVAS_H / 2);
+        ctx.fillText("No highscores yet.", CANVAS_W / 2, listY + 40);
+      } else {
+        highscores.forEach((entry, index) => {
+          const label = `${index + 1}. ${entry.name}`;
+          const score = `${entry.score.toFixed(1)}s`;
+          ctx.fillText(label, listX, listY + index * lineHeight);
+          ctx.textAlign = "right";
+          ctx.fillText(score, panelX + panelWidth - 40, listY + index * lineHeight);
+          ctx.textAlign = "left";
+        });
       }
+      resetUITextStyle();
 
-      if (state === GAME_STATE.GAME_OVER) {
-        ctx.font = "36px \"Segoe UI\", sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("Game Over", CANVAS_W / 2, CANVAS_H / 2 - 50);
-        ctx.font = "20px \"Segoe UI\", sans-serif";
-        ctx.fillText("Press Space or Enter to retry", CANVAS_W / 2, CANVAS_H / 2);
+      const buttonWidth = 140;
+      const buttonHeight = 40;
+      const buttonX = CANVAS_W / 2 - buttonWidth / 2;
+      const buttonY = panelY + panelHeight - 60;
+      renderButtons([
+        {
+          label: "Back",
+          x: buttonX,
+          y: buttonY,
+          w: buttonWidth,
+          h: buttonHeight,
+          onClick: () => returnToMenu(),
+        },
+      ]);
+    }
+
+    function drawUI() {
+      currentButtons = [];
+      if (state === GAME_STATE.PLAYING) {
+        drawHUD();
+      } else if (state === GAME_STATE.MENU) {
+        drawMenu();
+      } else if (state === GAME_STATE.GAME_OVER) {
+        drawGameOver();
+      } else if (state === GAME_STATE.HIGHSCORES) {
+        drawHighscores();
       }
     }
 
@@ -456,6 +732,13 @@
         dt = 0;
       }
 
+      if (quitHintTimer > 0) {
+        quitHintTimer = Math.max(quitHintTimer - rawDt, 0);
+        if (quitHintTimer === 0) {
+          quitHint = "";
+        }
+      }
+
       update(dt);
       render(dt);
 
@@ -476,15 +759,73 @@
 
     function startGame() {
       resetGame();
+      isEnteringName = false;
       state = GAME_STATE.PLAYING;
     }
 
     function returnToMenu() {
       state = GAME_STATE.MENU;
+      isEnteringName = false;
       resetGame();
     }
 
+    function openHighscores() {
+      state = GAME_STATE.HIGHSCORES;
+    }
+
+    function showQuitHint() {
+      quitHint = "Close tab to quit";
+      quitHintTimer = 2.5;
+    }
+
+    function handleNameInput(event) {
+      if (event.code === "Backspace") {
+        nameInput = nameInput.slice(0, -1);
+        return;
+      }
+      if (event.code === "Escape") {
+        isEnteringName = false;
+        returnToMenu();
+        return;
+      }
+      if (event.code === "KeyH") {
+        isEnteringName = false;
+        openHighscores();
+        return;
+      }
+      if (event.code === "Enter") {
+        addHighscore(nameInput, lastScore);
+        isEnteringName = false;
+        openHighscores();
+        return;
+      }
+      const char = event.key;
+      if (char.length !== 1) {
+        return;
+      }
+      if (nameInput.length >= 12) {
+        return;
+      }
+      if (/^[a-z0-9 _-]$/i.test(char)) {
+        nameInput += char;
+      }
+    }
+
+    function updateMousePosition(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      mouse.x = (event.clientX - rect.left) * scaleX;
+      mouse.y = (event.clientY - rect.top) * scaleY;
+      mouse.inside = mouse.x >= 0 && mouse.x <= CANVAS_W && mouse.y >= 0 && mouse.y <= CANVAS_H;
+    }
+
     document.addEventListener("keydown", (event) => {
+      if (state === GAME_STATE.GAME_OVER && isEnteringName) {
+        handleNameInput(event);
+        return;
+      }
+
       switch (event.code) {
         case "ArrowUp":
         case "KeyW":
@@ -500,8 +841,26 @@
             startGame();
           }
           break;
+        case "KeyH":
+          if (state === GAME_STATE.MENU || state === GAME_STATE.GAME_OVER) {
+            openHighscores();
+          }
+          break;
         case "Escape":
-          returnToMenu();
+          if (state === GAME_STATE.PLAYING) {
+            returnToMenu();
+          } else if (state === GAME_STATE.MENU) {
+            showQuitHint();
+          } else if (state === GAME_STATE.GAME_OVER) {
+            returnToMenu();
+          } else if (state === GAME_STATE.HIGHSCORES) {
+            returnToMenu();
+          }
+          break;
+        case "KeyB":
+          if (state === GAME_STATE.HIGHSCORES) {
+            returnToMenu();
+          }
           break;
         case "F3":
         case "KeyD":
@@ -551,6 +910,27 @@
           break;
       }
     });
+
+    canvas.addEventListener("mousemove", (event) => {
+      updateMousePosition(event);
+    });
+
+    canvas.addEventListener("mouseleave", () => {
+      mouse.inside = false;
+    });
+
+    canvas.addEventListener("click", (event) => {
+      updateMousePosition(event);
+      if (!currentButtons.length) {
+        return;
+      }
+      const clicked = currentButtons.find((button) => hitTest(button, mouse.x, mouse.y));
+      if (clicked && typeof clicked.onClick === "function") {
+        clicked.onClick();
+      }
+    });
+
+    highscores = loadHighscores().sort((a, b) => b.score - a.score).slice(0, 10);
 
     loadSprites()
       .then(() => {
