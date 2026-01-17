@@ -122,6 +122,16 @@
       speed: 320,
     };
 
+    const PLAYER_COLLIDER_SCALE_X = 0.78;
+    const PLAYER_COLLIDER_SCALE_Y = 0.78;
+    const PLAYER_COLLIDER_OFFSET_X = 0;
+    const PLAYER_COLLIDER_OFFSET_Y = 0;
+
+    const ICE_COLLIDER_SCALE_X = 0.62;
+    const ICE_COLLIDER_SCALE_Y = 0.9;
+    const ICE_COLLIDER_OFFSET_X = 0;
+    const ICE_COLLIDER_OFFSET_Y = 0;
+
     let lastTime = 0;
     let fps = 0;
     let frameCounter = 0;
@@ -194,12 +204,43 @@
       );
     }
 
-    function getPlayerAabb() {
+    function getPlayerRenderBox() {
       return {
         x: player.x - player.w / 2,
         y: player.y - player.h / 2,
         w: player.w,
         h: player.h,
+      };
+    }
+
+    function getPlayerCollider() {
+      const cw = player.w * PLAYER_COLLIDER_SCALE_X;
+      const ch = player.h * PLAYER_COLLIDER_SCALE_Y;
+      return {
+        x: player.x - cw / 2 + PLAYER_COLLIDER_OFFSET_X,
+        y: player.y - ch / 2 + PLAYER_COLLIDER_OFFSET_Y,
+        w: cw,
+        h: ch,
+      };
+    }
+
+    function getObstacleRenderBox(obstacle) {
+      return {
+        x: obstacle.x,
+        y: obstacle.y,
+        w: obstacle.w,
+        h: obstacle.h,
+      };
+    }
+
+    function getObstacleCollider(obstacle) {
+      const cw = obstacle.w * ICE_COLLIDER_SCALE_X;
+      const ch = obstacle.h * ICE_COLLIDER_SCALE_Y;
+      return {
+        x: obstacle.x + (obstacle.w - cw) / 2 + ICE_COLLIDER_OFFSET_X,
+        y: obstacle.y + (obstacle.h - ch) / 2 + ICE_COLLIDER_OFFSET_Y,
+        w: cw,
+        h: ch,
       };
     }
 
@@ -238,7 +279,9 @@
       obstacles = obstacles.filter((obstacle) => obstacle.x + obstacle.w > -40);
       obstacles.forEach((obstacle) => {
         obstacle.x -= worldSpeed * dt;
-        if (!godMode && aabbIntersect(getPlayerAabb(), obstacle)) {
+        const playerBox = getPlayerCollider();
+        const obstacleBox = getObstacleCollider(obstacle);
+        if (!godMode && aabbIntersect(playerBox, obstacleBox)) {
           if (debugEnabled) {
             console.log("Collision", { player: { ...player }, obstacle: { ...obstacle } });
           }
@@ -300,12 +343,46 @@
     }
 
     function drawHitboxes() {
-      const playerBox = getPlayerAabb();
-      ctx.strokeStyle = "rgba(255, 0, 0, 0.6)";
-      ctx.strokeRect(playerBox.x, playerBox.y, playerBox.w, playerBox.h);
-      ctx.strokeStyle = "rgba(0, 200, 255, 0.6)";
+      const playerRenderBox = getPlayerRenderBox();
+      const playerColliderBox = getPlayerCollider();
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(
+        playerRenderBox.x,
+        playerRenderBox.y,
+        playerRenderBox.w,
+        playerRenderBox.h
+      );
       obstacles.forEach((obstacle) => {
-        ctx.strokeRect(obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+        const obstacleRenderBox = getObstacleRenderBox(obstacle);
+        ctx.strokeRect(
+          obstacleRenderBox.x,
+          obstacleRenderBox.y,
+          obstacleRenderBox.w,
+          obstacleRenderBox.h
+        );
+      });
+      ctx.restore();
+
+      ctx.strokeStyle = "rgba(0, 255, 120, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(
+        playerColliderBox.x,
+        playerColliderBox.y,
+        playerColliderBox.w,
+        playerColliderBox.h
+      );
+      ctx.strokeStyle = "rgba(255, 80, 80, 0.9)";
+      obstacles.forEach((obstacle) => {
+        const obstacleColliderBox = getObstacleCollider(obstacle);
+        ctx.strokeRect(
+          obstacleColliderBox.x,
+          obstacleColliderBox.y,
+          obstacleColliderBox.w,
+          obstacleColliderBox.h
+        );
       });
     }
 
