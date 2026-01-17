@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ice Chaos</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: #0b1a24;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at top, #132637, #08131c 70%);
+      color: #e6f0ff;
+    }
+
+    .frame {
+      width: min(95vw, 900px);
+      text-align: center;
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      border-radius: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      background: #0d1c27;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .hint {
+      margin-top: 12px;
+      font-size: 0.9rem;
+      opacity: 0.7;
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <canvas id="game" width="900" height="500" aria-label="Ice Chaos Canvas"></canvas>
+    <div class="hint">W/S or ↑/↓ to move • Space/Enter to start • Esc to menu</div>
+  </div>
+
+  <script>
+    "use strict";
+
+    const USE_SPRITES = false;
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const sprites = {
+      penguin: new Image(),
+      iceberg: new Image(),
+      bg: new Image(),
+    };
+
+    sprites.penguin.src = "assets/penguin.png";
+    sprites.iceberg.src = "assets/iceberg.png";
+    sprites.bg.src = "assets/bg.png";
+
+    function loadSprites() {
+      if (!USE_SPRITES) {
+        return Promise.resolve();
+      }
+
+      const toLoad = Object.entries(sprites).map(([key, img]) => {
+        return new Promise((resolve, reject) => {
+          img.onload = () => resolve(key);
+          img.onerror = () => reject(new Error(`Failed to load sprite: ${key}`));
+        });
+      });
+
+      return Promise.all(toLoad);
+    }
+
+    const GAME_STATE = {
+      MENU: "MENU",
+      PLAYING: "PLAYING",
+      GAME_OVER: "GAME_OVER",
+    };
+
+    const input = {
+      up: false,
+      down: false,
+    };
+
+    let state = GAME_STATE.MENU;
+    let obstacles = [];
+    let spawnTimer = 0;
+    let baseSpeed = 180;
+    let worldSpeed = baseSpeed;
+    let elapsedTime = 0;
+    let highscore = Number.parseFloat(localStorage.getItem("iceChaosHighscore")) || 0;
+
+    let debugEnabled = false;
+    let godMode = false;
+    let slowMoFactor = 1.0;
+    let freeze = false;
+    let stepRequested = false;
+
+    const player = {
+      x: 120,
+      y: 250,
+      width: 44,
+      height: 44,
+      speed: 320,
+    };
+
+    let lastTime = 0;
+    let fps = 0;
+    let frameCounter = 0;
+    let fpsTimer = 0;
+    let bgOffset = 0;
+
+    function resetGame() {
+      obstacles = [];
+      spawnTimer = 0;
+      baseSpeed = 180;
+      worldSpeed = baseSpeed;
+      elapsedTime = 0;
+      player.y = canvas.height / 2;
+      freeze = false;
+      stepRequested = false;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function randomRange(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function spawnObstacle(forced = false) {
+      const fromTop = Math.random() > 0.5;
+      const width = randomRange(38, 64);
+      const height = randomRange(80, 180);
+      const y = fromTop ? 0 : canvas.height - height;
+
+      obstacles.push({
+        x: canvas.width + width,
+        y,
+        width,
+        height,
+        fromTop,
+      });
+
+      if (debugEnabled || forced) {
+        console.log("Spawn obstacle", { fromTop, width, height, speed: worldSpeed });
+      }
+
+      const baseInterval = clamp(1.2 - (worldSpeed - baseSpeed) * 0.0025, 0.5, 1.2);
+      spawnTimer = randomRange(baseInterval, baseInterval + 0.6);
+    }
+
+    function aabbIntersect(a, b) {
+      return (
+        a.x < b.x + b.width &&
+        a.x + a.width > b.x &&
+        a.y < b.y + b.height &&
+        a.y + a.height > b.y
+      );
+    }
+
+    function handleGameOver() {
+      state = GAME_STATE.GAME_OVER;
+      if (elapsedTime > highscore) {
+        highscore = elapsedTime;
+        localStorage.setItem("iceChaosHighscore", highscore.toFixed(1));
+      }
+    }
+
+    function update(dt) {
+      if (state !== GAME_STATE.PLAYING) {
+        return;
+      }
+
+      const movement = player.speed * dt;
+      if (input.up) {
+        player.y -= movement;
+      }
+      if (input.down) {
+        player.y += movement;
+      }
+
+      player.y = clamp(player.y, 10, canvas.height - player.height - 10);
+
+      worldSpeed += dt * 3.2;
+      elapsedTime += dt;
+
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawnObstacle();
+      }
+
+      obstacles = obstacles.filter((obstacle) => obstacle.x + obstacle.width > -40);
+      obstacles.forEach((obstacle) => {
+        obstacle.x -= worldSpeed * dt;
+        if (!godMode && aabbIntersect(player, obstacle)) {
+          if (debugEnabled) {
+            console.log("Collision", { player: { ...player }, obstacle: { ...obstacle } });
+          }
+          handleGameOver();
+        }
+      });
+    }
+
+    function drawBackground(dt) {
+      ctx.fillStyle = "#0b2433";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // TODO: Background/Water rendering here (user will add later)
+      ctx.fillStyle = "#0f2b3d";
+      ctx.fillRect(0, canvas.height * 0.6, canvas.width, canvas.height * 0.4);
+
+      if (USE_SPRITES && sprites.bg.complete && sprites.bg.naturalWidth > 0) {
+        const parallaxSpeed = worldSpeed * 0.3;
+        bgOffset = (bgOffset + parallaxSpeed * dt) % canvas.width;
+        ctx.drawImage(sprites.bg, -bgOffset, 0, canvas.width, canvas.height);
+        ctx.drawImage(sprites.bg, canvas.width - bgOffset, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function drawPlayer() {
+      if (USE_SPRITES && sprites.penguin.complete && sprites.penguin.naturalWidth > 0) {
+        ctx.drawImage(
+          sprites.penguin,
+          player.x,
+          player.y,
+          player.width,
+          player.height
+        );
+        return;
+      }
+
+      ctx.font = "36px serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText("🐧", player.x, player.y + 2);
+    }
+
+    function drawObstacle(obstacle) {
+      if (USE_SPRITES && sprites.iceberg.complete && sprites.iceberg.naturalWidth > 0) {
+        ctx.drawImage(
+          sprites.iceberg,
+          obstacle.x,
+          obstacle.y,
+          obstacle.width,
+          obstacle.height
+        );
+        return;
+      }
+
+      ctx.font = "32px serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("🧊", obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2);
+    }
+
+    function drawHitboxes() {
+      ctx.strokeStyle = "rgba(255, 0, 0, 0.6)";
+      ctx.strokeRect(player.x, player.y, player.width, player.height);
+      ctx.strokeStyle = "rgba(0, 200, 255, 0.6)";
+      obstacles.forEach((obstacle) => {
+        ctx.strokeRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+      });
+    }
+
+    function drawUI() {
+      ctx.fillStyle = "#e6f0ff";
+      ctx.font = "18px \"Segoe UI\", sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(`Score: ${elapsedTime.toFixed(1)}`, 20, 28);
+      ctx.fillText(`Highscore: ${highscore.toFixed(1)}`, 20, 50);
+
+      if (state === GAME_STATE.MENU) {
+        ctx.font = "42px \"Segoe UI\", sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Ice Chaos", canvas.width / 2, canvas.height / 2 - 60);
+        ctx.font = "20px \"Segoe UI\", sans-serif";
+        ctx.fillText("Press Space or Enter to start", canvas.width / 2, canvas.height / 2);
+      }
+
+      if (state === GAME_STATE.GAME_OVER) {
+        ctx.font = "36px \"Segoe UI\", sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2 - 50);
+        ctx.font = "20px \"Segoe UI\", sans-serif";
+        ctx.fillText("Press Space or Enter to retry", canvas.width / 2, canvas.height / 2);
+      }
+    }
+
+    function drawDebugOverlay() {
+      if (!debugEnabled) {
+        return;
+      }
+
+      const lines = [
+        `FPS: ${fps.toFixed(0)}`,
+        `gameState: ${state}`,
+        `worldSpeed: ${worldSpeed.toFixed(1)}`,
+        `spawnTimer: ${spawnTimer.toFixed(2)}`,
+        `obstacleCount: ${obstacles.length}`,
+        `elapsedTime: ${elapsedTime.toFixed(2)}`,
+        `godMode: ${godMode}`,
+        `slowMoFactor: ${slowMoFactor}`,
+        `freeze: ${freeze}`,
+      ];
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+      ctx.fillRect(12, 12, 240, lines.length * 18 + 16);
+      ctx.fillStyle = "#8fe3ff";
+      ctx.font = "14px \"Segoe UI\", monospace";
+      ctx.textAlign = "left";
+      lines.forEach((line, index) => {
+        ctx.fillText(line, 20, 30 + index * 18);
+      });
+
+      drawHitboxes();
+    }
+
+    function render(dt) {
+      drawBackground(dt);
+      obstacles.forEach(drawObstacle);
+      drawPlayer();
+      drawUI();
+      drawDebugOverlay();
+    }
+
+    function gameLoop(timestamp) {
+      const rawDt = Math.min((timestamp - lastTime) / 1000, 0.08);
+      lastTime = timestamp;
+
+      let dt = rawDt * slowMoFactor;
+      if (freeze && !stepRequested) {
+        dt = 0;
+      }
+
+      update(dt);
+      render(dt);
+
+      if (freeze && stepRequested) {
+        stepRequested = false;
+      }
+
+      frameCounter += 1;
+      fpsTimer += rawDt;
+      if (fpsTimer >= 0.5) {
+        fps = frameCounter / fpsTimer;
+        frameCounter = 0;
+        fpsTimer = 0;
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    function startGame() {
+      resetGame();
+      state = GAME_STATE.PLAYING;
+    }
+
+    function returnToMenu() {
+      state = GAME_STATE.MENU;
+      resetGame();
+    }
+
+    document.addEventListener("keydown", (event) => {
+      switch (event.code) {
+        case "ArrowUp":
+        case "KeyW":
+          input.up = true;
+          break;
+        case "ArrowDown":
+        case "KeyS":
+          input.down = true;
+          break;
+        case "Space":
+        case "Enter":
+          if (state === GAME_STATE.MENU || state === GAME_STATE.GAME_OVER) {
+            startGame();
+          }
+          break;
+        case "Escape":
+          returnToMenu();
+          break;
+        case "F3":
+        case "KeyD":
+          debugEnabled = !debugEnabled;
+          break;
+        case "KeyG":
+          godMode = !godMode;
+          break;
+        case "Digit1":
+          slowMoFactor = 1.0;
+          break;
+        case "Digit2":
+          slowMoFactor = 0.5;
+          break;
+        case "Digit3":
+          slowMoFactor = 0.25;
+          break;
+        case "KeyP":
+          freeze = !freeze;
+          break;
+        case "KeyO":
+          if (freeze) {
+            stepRequested = true;
+          }
+          break;
+        case "KeyT":
+          if (debugEnabled) {
+            spawnObstacle(true);
+          }
+          break;
+        default:
+          break;
+      }
+    });
+
+    document.addEventListener("keyup", (event) => {
+      switch (event.code) {
+        case "ArrowUp":
+        case "KeyW":
+          input.up = false;
+          break;
+        case "ArrowDown":
+        case "KeyS":
+          input.down = false;
+          break;
+        default:
+          break;
+      }
+    });
+
+    loadSprites()
+      .then(() => {
+        requestAnimationFrame((timestamp) => {
+          lastTime = timestamp;
+          requestAnimationFrame(gameLoop);
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+        requestAnimationFrame(gameLoop);
+      });
+  </script>
+</body>
+</html>
