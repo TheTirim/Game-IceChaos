@@ -126,7 +126,6 @@
     let fps = 0;
     let frameCounter = 0;
     let fpsTimer = 0;
-    let bgX = 0;
 
     function resetGame() {
       obstacles = [];
@@ -145,6 +144,20 @@
 
     function randomRange(min, max) {
       return Math.random() * (max - min) + min;
+    }
+
+    function drawImageCover(ctx, img, x, y, w, h) {
+      const imgW = img.naturalWidth || img.width;
+      const imgH = img.naturalHeight || img.height;
+      if (!imgW || !imgH) {
+        return;
+      }
+      const scale = Math.max(w / imgW, h / imgH);
+      const drawW = imgW * scale;
+      const drawH = imgH * scale;
+      const dx = x + (w - drawW) / 2;
+      const dy = y + (h - drawH) / 2;
+      ctx.drawImage(img, dx, dy, drawW, drawH);
     }
 
     function spawnObstacle(forced = false) {
@@ -236,10 +249,7 @@
 
     function drawBackground(dt) {
       if (USE_SPRITES && sprites.bg.complete && sprites.bg.naturalWidth > 0) {
-        bgX = (bgX - worldSpeed * 0.3 * dt) % CANVAS_W;
-        bgX = ((bgX % CANVAS_W) + CANVAS_W) % CANVAS_W;
-        ctx.drawImage(sprites.bg, bgX, 0, CANVAS_W, CANVAS_H);
-        ctx.drawImage(sprites.bg, bgX + CANVAS_W, 0, CANVAS_W, CANVAS_H);
+        drawImageCover(ctx, sprites.bg, 0, 0, CANVAS_W, CANVAS_H);
         return;
       }
 
