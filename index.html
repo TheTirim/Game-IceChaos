@@ -70,11 +70,13 @@
       penguin: new Image(),
       iceberg: new Image(),
       bg: new Image(),
+      snowball: new Image(),
     };
 
     sprites.bg.src = "assets/bg.png";
     sprites.penguin.src = "assets/penguin.png";
     sprites.iceberg.src = "assets/iceberg.png";
+    sprites.snowball.src = "assets/snowball.png";
 
     let spritesReady = false;
 
@@ -277,8 +279,15 @@
       saveHighscores(next);
     }
 
+    function getMaxSnowballs(timeElapsed) {
+      return Math.max(1, Math.floor(timeElapsed / 10));
+    }
+
     function spawnObstacle(forced = false) {
-      const isSnowball = Math.random() < 0.3;
+      const wantsSnowball = Math.random() < 0.3;
+      const currentSnowballs = obstacles.filter((obstacle) => obstacle.type === "snowball").length;
+      const maxSnowballs = getMaxSnowballs(elapsedTime);
+      const isSnowball = wantsSnowball && currentSnowballs < maxSnowballs;
 
       if (isSnowball) {
         let y = randRange(80, CANVAS_H - 80);
@@ -489,6 +498,10 @@
 
     function drawObstacle(obstacle) {
       if (obstacle.type === "snowball") {
+        if (USE_SPRITES && sprites.snowball.complete && sprites.snowball.naturalWidth > 0) {
+          ctx.drawImage(sprites.snowball, obstacle.x, obstacle.y, obstacle.w, obstacle.h);
+          return;
+        }
         ctx.save();
         ctx.font = `${obstacle.h}px system-ui`;
         ctx.textAlign = "left";
@@ -779,13 +792,16 @@
         return;
       }
 
+      const currentSnowballs = obstacles.filter((obstacle) => obstacle.type === "snowball").length;
+      const maxSnowballs = getMaxSnowballs(elapsedTime);
       const lines = [
         `FPS: ${fps.toFixed(0)}`,
         `gameState: ${state}`,
         `worldSpeed: ${worldSpeed.toFixed(1)}`,
         `spawnTimer: ${spawnTimer.toFixed(2)}`,
         `obstacleCount: ${obstacles.length}`,
-        `snowballCount: ${obstacles.filter((obstacle) => obstacle.type === "snowball").length}`,
+        `snowballCount: ${currentSnowballs}`,
+        `maxSnowballs: ${maxSnowballs}`,
         `elapsedTime: ${elapsedTime.toFixed(2)}`,
         `godMode: ${godMode}`,
         `slowMoFactor: ${slowMoFactor}`,
