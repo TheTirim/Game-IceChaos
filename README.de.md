@@ -1,47 +1,58 @@
 # Ice Chaos
 
-Ice Chaos ist ein leichtgewichtiges Single-File-Endless-Runner-Game auf Basis von HTML5-Canvas. Weiche eisigen Hindernissen aus, überlebe so lange wie möglich und erlebe den stetigen Geschwindigkeitsanstieg.
+## Beschreibung
+Ein schnelles 2D-Endlos-Runner-Spiel, in dem ein Pinguin durch eine Eishöhle gesteuert wird. Eisberge und fliegende Schneebälle müssen umgangen werden, während die Geschwindigkeit stetig steigt.
 
 ## Features
-- Emoji-Platzhalter
-- Highscore (localStorage)
-- Debug-Modus
-- God Mode
-- SlowMo
-- Freeze & Frame Step
-- Spawn-Test
+- 2D Side-Scrolling Endless Runner
+- Cartoon-Eishöhlen-Hintergrund
+- Pinguin mit voller 2D-Bewegung (hoch/runter/links/rechts)
+- Eisberg-Spikes von oben und unten (richtungsabhängige Hitboxen)
+- Fliegende Schneebälle mit diagonaler Bewegung
+- Stetig steigende Spielgeschwindigkeit (Difficulty-Ramp)
+- Faires Hitbox-System (Renderbox ≠ Kollisionsbox)
+- Highscore-System mit Namenseingabe
+- Debug-Modus mit Hitbox-Anzeige
+- Tastatur-Steuerung
+- Persistente Highscores (localStorage)
+- Impressum unter dem Spiel
 
 ## Steuerung
-- **W / Pfeil hoch**: Nach oben
-- **S / Pfeil runter**: Nach unten
-- **Space / Enter**: Start / Neustart
-- **Esc**: Zurück ins Menü
-- **F3 / D**: Debug-Overlay umschalten
-- **G**: God Mode umschalten
-- **1 / 2 / 3**: SlowMo 1.0 / 0.5 / 0.25
-- **P**: Freeze
-- **O**: Einzelnes Frame (nur bei Freeze)
-- **T**: Spawn-Test (nur Debug)
+### Spiel
+- W / Pfeil hoch – Nach oben
+- S / Pfeil runter – Nach unten
+- A / Pfeil links – Nach links
+- D / Pfeil rechts – Nach rechts
+- Leertaste / Enter – Start / Neustart
+- Esc – Zurück ins Hauptmenü
+
+### Debug
+- F3 oder D – Debug-Overlay
+- G – God Mode
+- 1 / 2 / 3 – Zeitlupe
+- P – Spiel pausieren
+- O – Einzelbild-Schritt
+- T – Test-Hindernis spawnen
+
+## Ordnerstruktur / Assets
+- /assets/bg.png        – Hintergrund (Eishöhle)
+- /assets/penguin.png   – Spieler-Sprite
+- /assets/iceberg.png   – Eisberg-Spike (im Code gedreht)
 
 ## Start
-1. `index.html` im Browser öffnen.
-2. Falls der Browser lokale Dateien oder Storage blockiert, einen lokalen Server nutzen.
+- index.html im Browser öffnen
+- Optional: lokalen Webserver nutzen, falls Assets nicht laden
 
-## Ordnerstruktur
-```
-/assets/penguin.png
-/assets/iceberg.png
-/assets/bg.png
-```
+## Highscores
+- Speicherung im Browser (localStorage)
+- Top-10-Liste mit Name und Zeit
+- Zurücksetzen durch Löschen der Browser-Daten
 
-## Sprites später aktivieren
-- `USE_SPRITES = true` in `index.html` setzen.
-- Transparente PNGs werden empfohlen.
-
-## Highscore zurücksetzen
-Lösche den Schlüssel `iceChaosHighscore` im Browser-Storage, um den Highscore zurückzusetzen.
+## Impressum
+© 2026 theTirim
 
 ## TODO
-- Hintergrund ausarbeiten
-- Echte Grafiken
 - Animationen
+- Weitere Hindernisse
+- Soundeffekte & Musik
+- Mobile-Unterstützung
