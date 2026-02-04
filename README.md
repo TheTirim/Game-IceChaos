@@ -62,6 +62,9 @@ The gameplay video is stored directly in the repository and embedded using HTML 
 ## Imprint
 © 2026 theTirim
 
+## License
+Released under the MIT License. Attribution required—please keep the copyright notice and credit "theTirim".
+
 ## TODO
 - Animated sprites
 - Additional obstacle types

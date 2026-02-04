@@ -51,6 +51,9 @@ Ein schnelles 2D-Endlos-Runner-Spiel, in dem ein Pinguin durch eine Eishöhle ge
 ## Impressum
 © 2026 theTirim
 
+## Lizenz
+Veröffentlicht unter der MIT-Lizenz. Namensnennung erforderlich – bitte den Copyright-Hinweis beibehalten und "theTirim" nennen.
+
 ## TODO
 - Animationen
 - Weitere Hindernisse
