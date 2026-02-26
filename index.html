@@ -134,6 +134,12 @@
     let slowMoFactor = 1.0;
     let freeze = false;
     let stepRequested = false;
+    let runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    let totalFrameIndex = 0;
+
+    const ICE_SPIKE_DEBUG_RING_KEY = "iceChaosIceSpikeDebugRing";
+    const ICE_SPIKE_DEBUG_RING_MAX = 200;
+    let iceSpikeDebugRing = [];
 
     const mouse = {
       x: 0,
@@ -174,6 +180,7 @@
       spawnTimer = 0;
       worldSpeed = WORLD_SPEED_START;
       elapsedTime = 0;
+      runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
       player.x = 120;
       player.y = CANVAS_H / 2;
       freeze = false;
@@ -283,6 +290,103 @@
       return Math.max(1, Math.floor(timeElapsed / 10));
     }
 
+    function loadIceSpikeDebugRing() {
+      try {
+        const raw = localStorage.getItem(ICE_SPIKE_DEBUG_RING_KEY);
+        if (!raw) {
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          iceSpikeDebugRing = parsed.slice(-ICE_SPIKE_DEBUG_RING_MAX);
+        }
+      } catch (error) {
+        console.warn("Failed to load ice spike debug ring", error);
+      }
+    }
+
+    function persistIceSpikeDebugRing() {
+      try {
+        localStorage.setItem(ICE_SPIKE_DEBUG_RING_KEY, JSON.stringify(iceSpikeDebugRing));
+      } catch (error) {
+        // localStorage may be unavailable in some contexts.
+      }
+    }
+
+    function logIceSpikeSpawnDebug(data) {
+      const event = {
+        timestamp: new Date().toISOString(),
+        runId,
+        frameIndex: totalFrameIndex,
+        obstacleType: "IceSpike",
+        ...data,
+      };
+      iceSpikeDebugRing.push(event);
+      if (iceSpikeDebugRing.length > ICE_SPIKE_DEBUG_RING_MAX) {
+        iceSpikeDebugRing.splice(0, iceSpikeDebugRing.length - ICE_SPIKE_DEBUG_RING_MAX);
+      }
+      persistIceSpikeDebugRing();
+      console.warn("IceSpike spawn outlier", event);
+    }
+
+    function getIceSpikeMetrics(iceberg) {
+      const collider = getObstacleCollider(iceberg);
+      const playerColliderWidth = getPlayerCollider().w;
+      const maxAllowedWidth = playerColliderWidth * 2.0;
+      const outlier = collider.w > maxAllowedWidth;
+      return {
+        collider,
+        playerColliderWidth,
+        maxAllowedWidth,
+        outlier,
+      };
+    }
+
+    function buildIceSpikeDebugData(iceberg, spawnMeta, metrics, reason, clampFactor = 1) {
+      const spritePixelW = sprites.iceberg?.naturalWidth || null;
+      const spritePixelH = sprites.iceberg?.naturalHeight || null;
+      const pixelsPerUnit = null;
+      const spriteWorldWidthExpected =
+        pixelsPerUnit && spritePixelW ? spritePixelW / pixelsPerUnit : null;
+      const unitMismatch =
+        spriteWorldWidthExpected != null && Math.abs(spriteWorldWidthExpected - iceberg.w) > 0.25;
+
+      return {
+        reason,
+        position: { x: iceberg.x, y: iceberg.y },
+        from: iceberg.from,
+        prefabBaseScale: { x: 1, y: 1 },
+        initialTransformScale: { x: 1, y: 1 },
+        runtimeAppliedScale: { x: spawnMeta.runtimeScale, y: spawnMeta.runtimeScale },
+        finalTransformScale: {
+          x: spawnMeta.runtimeScale * clampFactor,
+          y: spawnMeta.runtimeScale * clampFactor,
+        },
+        spritePixelSize: { w: spritePixelW, h: spritePixelH },
+        spriteWorldSize: { w: iceberg.w, h: iceberg.h },
+        colliderWorldSize: { w: metrics.collider.w, h: metrics.collider.h },
+        pixelsPerUnit,
+        rngRawValue: spawnMeta.rngRaw,
+        computedScale: spawnMeta.runtimeScale,
+        scaleRange: {
+          min: spawnMeta.scaleMin,
+          max: spawnMeta.scaleMax,
+        },
+        maxAllowedWidth: metrics.maxAllowedWidth,
+        clampFactor,
+        rerollCount: spawnMeta.rerollCount,
+        warnings: {
+          unitMismatch: unitMismatch ? "UNIT_MISMATCH" : null,
+          doubleScaleSuspect:
+            spawnMeta.prefabBaseScale !== 1 && spawnMeta.runtimeScale !== 1
+              ? "DOUBLE_SCALE_SUSPECT"
+              : null,
+          widthOutlier: metrics.outlier,
+          maxAllowedWidthSource: "fallback: playerColliderWidth * 2.0",
+        },
+      };
+    }
+
     function spawnObstacle(forced = false) {
       const wantsSnowball = Math.random() < 0.3;
       const currentSnowballs = obstacles.filter((obstacle) => obstacle.type === "snowball").length;
@@ -309,20 +413,71 @@
       } else {
         const from = Math.random() > 0.5 ? "top" : "bottom";
         const difficultyScale = clamp(1 + (worldSpeed - WORLD_SPEED_START) * 0.003, 1, 1.6);
-        const h = Math.round(randRange(120, 280) * difficultyScale);
         const img = sprites.iceberg;
-        const aspect = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : 0.5;
-        const w = Math.max(28, Math.round(h * aspect));
-        const y = from === "bottom" ? CANVAS_H - h : 0;
+        const hasValidImageRatio = img && img.naturalWidth > 0 && img.naturalHeight > 0;
+        const aspect = hasValidImageRatio ? img.naturalWidth / img.naturalHeight : 0.5;
+        const minScaledH = 120 * difficultyScale;
+        const maxScaledH = 280 * difficultyScale;
 
-        obstacles.push({
-          type: "iceberg",
-          x: CANVAS_W + w,
-          y,
-          w,
-          h,
-          from,
-        });
+        let chosenIceberg = null;
+        let spawnMeta = null;
+        let metrics = null;
+
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const rngRaw = Math.random();
+          const sampledH = minScaledH + rngRaw * (maxScaledH - minScaledH);
+          const h = Math.round(sampledH);
+          const w = Math.max(28, Math.round(h * aspect));
+          const y = from === "bottom" ? CANVAS_H - h : 0;
+          const iceberg = {
+            type: "iceberg",
+            x: CANVAS_W + w,
+            y,
+            w,
+            h,
+            from,
+          };
+          const currentMetrics = getIceSpikeMetrics(iceberg);
+          const currentSpawnMeta = {
+            rngRaw,
+            runtimeScale: sampledH / 280,
+            scaleMin: minScaledH / 280,
+            scaleMax: maxScaledH / 280,
+            prefabBaseScale: 1,
+            rerollCount: attempt,
+          };
+
+          chosenIceberg = iceberg;
+          metrics = currentMetrics;
+          spawnMeta = currentSpawnMeta;
+
+          if (!currentMetrics.outlier) {
+            break;
+          }
+
+          logIceSpikeSpawnDebug(
+            buildIceSpikeDebugData(iceberg, currentSpawnMeta, currentMetrics, "OUTLIER_REROLL")
+          );
+        }
+
+        if (metrics.outlier) {
+          const clampFactor = clamp(metrics.maxAllowedWidth / metrics.collider.w, 0, 1);
+          chosenIceberg.w *= clampFactor;
+          chosenIceberg.h *= clampFactor;
+          chosenIceberg.x = CANVAS_W + chosenIceberg.w;
+          metrics = getIceSpikeMetrics(chosenIceberg);
+          logIceSpikeSpawnDebug(
+            buildIceSpikeDebugData(
+              chosenIceberg,
+              { ...spawnMeta, runtimeScale: spawnMeta.runtimeScale * clampFactor, rerollCount: 2 },
+              metrics,
+              "OUTLIER_CLAMPED",
+              clampFactor
+            )
+          );
+        }
+
+        obstacles.push(chosenIceberg);
       }
 
       if (debugEnabled || forced) {
@@ -972,6 +1127,7 @@
       }
 
       frameCounter += 1;
+      totalFrameIndex += 1;
       fpsTimer += rawDt;
       if (fpsTimer >= 0.5) {
         fps = frameCounter / fpsTimer;
@@ -1171,6 +1327,7 @@
     });
 
     highscores = loadHighscores().sort((a, b) => b.score - a.score).slice(0, 10);
+    loadIceSpikeDebugRing();
 
     loadSprites()
       .then(() => {
