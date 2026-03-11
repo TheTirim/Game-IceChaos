@@ -175,6 +175,29 @@
     let frameCounter = 0;
     let fpsTimer = 0;
 
+    const SNOWFLAKE_COUNT = 48;
+    const snowflakes = [];
+
+    function createSnowflake(randomY = true) {
+      return {
+        x: randRange(0, CANVAS_W),
+        y: randomY ? randRange(0, CANVAS_H) : randRange(-CANVAS_H * 0.15, -12),
+        r: randRange(1.2, 3.4),
+        speedY: randRange(12, 30),
+        drift: randRange(4, 16),
+        phase: randRange(0, Math.PI * 2),
+        phaseSpeed: randRange(0.2, 0.6),
+        alpha: randRange(0.38, 0.78),
+      };
+    }
+
+    function initSnowflakes() {
+      snowflakes.length = 0;
+      for (let i = 0; i < SNOWFLAKE_COUNT; i += 1) {
+        snowflakes.push(createSnowflake(true));
+      }
+    }
+
     function resetGame() {
       obstacles = [];
       spawnTimer = 0;
@@ -725,18 +748,55 @@
       });
     }
 
+    function updateSnowflakes(dt) {
+      snowflakes.forEach((flake) => {
+        flake.phase += dt * flake.phaseSpeed;
+        flake.y += flake.speedY * dt;
+        flake.x += Math.sin(flake.phase) * flake.drift * dt;
+
+        if (flake.y - flake.r > CANVAS_H) {
+          Object.assign(flake, createSnowflake(false));
+        }
+
+        if (flake.x < -12) {
+          flake.x = CANVAS_W + 12;
+        } else if (flake.x > CANVAS_W + 12) {
+          flake.x = -12;
+        }
+      });
+    }
+
     function drawBackground(dt) {
       if (USE_SPRITES && sprites.bg.complete && sprites.bg.naturalWidth > 0) {
         drawImageCover(ctx, sprites.bg, 0, 0, CANVAS_W, CANVAS_H);
-        return;
+      } else {
+        ctx.fillStyle = "#0b2433";
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        // TODO: Background/Water rendering here (user will add later)
+        ctx.fillStyle = "#0f2b3d";
+        ctx.fillRect(0, CANVAS_H * 0.6, CANVAS_W, CANVAS_H * 0.4);
       }
+      drawSnowflakes();
+    }
 
-      ctx.fillStyle = "#0b2433";
-      ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-      // TODO: Background/Water rendering here (user will add later)
-      ctx.fillStyle = "#0f2b3d";
-      ctx.fillRect(0, CANVAS_H * 0.6, CANVAS_W, CANVAS_H * 0.4);
+    function drawSnowflakes() {
+      ctx.save();
+      snowflakes.forEach((flake) => {
+        const glow = flake.r * 2.4;
+        const gradient = ctx.createRadialGradient(flake.x, flake.y, 0, flake.x, flake.y, glow);
+        gradient.addColorStop(0, `rgba(255, 255, 255, ${flake.alpha})`);
+        gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(flake.x, flake.y, glow, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(235, 245, 255, ${Math.min(flake.alpha + 0.16, 0.92)})`;
+        ctx.beginPath();
+        ctx.arc(flake.x, flake.y, flake.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
     }
 
     function drawPlayer() {
@@ -1119,6 +1179,7 @@
         }
       }
 
+      updateSnowflakes(rawDt);
       update(dt);
       render(dt);
 
@@ -1328,6 +1389,7 @@
 
     highscores = loadHighscores().sort((a, b) => b.score - a.score).slice(0, 10);
     loadIceSpikeDebugRing();
+    initSnowflakes();
 
     loadSprites()
       .then(() => {
