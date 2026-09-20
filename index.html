@@ -272,7 +272,23 @@
       }
       try {
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
+        if (!Array.isArray(parsed)) {
+          return [];
+        }
+        return parsed
+          .filter(
+            (entry) =>
+              entry &&
+              typeof entry.name === "string" &&
+              typeof entry.score === "number" &&
+              Number.isFinite(entry.score) &&
+              entry.score >= 0
+          )
+          .map((entry) => ({
+            name: entry.name.trim().slice(0, 12) || "Player",
+            score: entry.score,
+            ...(typeof entry.date === "string" ? { date: entry.date } : {}),
+          }));
       } catch (error) {
         console.warn("Failed to parse highscores", error);
         return [];
@@ -280,7 +296,13 @@
     }
 
     function saveHighscores(list) {
-      localStorage.setItem("iceChaosHighscores", JSON.stringify(list));
+      try {
+        localStorage.setItem("iceChaosHighscores", JSON.stringify(list));
+        return true;
+      } catch (error) {
+        console.warn("Failed to save highscores", error);
+        return false;
+      }
     }
 
     function getBestScore() {
@@ -310,7 +332,7 @@
     }
 
     function getMaxSnowballs(timeElapsed) {
-      return Math.max(1, Math.floor(timeElapsed / 10));
+      return clamp(Math.floor(timeElapsed / 10), 1, 4);
     }
 
     function loadIceSpikeDebugRing() {
@@ -410,11 +432,31 @@
       };
     }
 
+    const MIN_OBSTACLE_ARRIVAL_GAP = 0.75;
+
+    function getObstacleArrivalTime(obstacle) {
+      const speed = obstacle.type === "snowball" ? obstacle.vx : worldSpeed;
+      return (obstacle.x - player.x) / speed;
+    }
+
+    function isSpawnTimingSafe(candidate) {
+      const candidateArrival = getObstacleArrivalTime(candidate);
+      return obstacles.every((obstacle) => {
+        const obstacleArrival = getObstacleArrivalTime(obstacle);
+        return (
+          obstacleArrival <= 0 ||
+          Math.abs(candidateArrival - obstacleArrival) + Number.EPSILON >=
+            MIN_OBSTACLE_ARRIVAL_GAP
+        );
+      });
+    }
+
     function spawnObstacle(forced = false) {
       const wantsSnowball = Math.random() < 0.3;
       const currentSnowballs = obstacles.filter((obstacle) => obstacle.type === "snowball").length;
       const maxSnowballs = getMaxSnowballs(elapsedTime);
       const isSnowball = wantsSnowball && currentSnowballs < maxSnowballs;
+      let candidate;
 
       if (isSnowball) {
         let y = randRange(80, CANVAS_H - 80);
@@ -424,7 +466,7 @@
           tries += 1;
         }
         const size = Math.round(randRange(40, 56));
-        obstacles.push({
+        candidate = {
           type: "snowball",
           x: CANVAS_W + 40,
           y,
@@ -432,7 +474,7 @@
           h: size,
           vx: worldSpeed * 1.05,
           vy: (Math.random() < 0.5 ? -1 : 1) * randRange(140, 240),
-        });
+        };
       } else {
         const from = Math.random() > 0.5 ? "top" : "bottom";
         const difficultyScale = clamp(1 + (worldSpeed - WORLD_SPEED_START) * 0.003, 1, 1.6);
@@ -500,8 +542,15 @@
           );
         }
 
-        obstacles.push(chosenIceberg);
+        candidate = chosenIceberg;
       }
+
+      if (!forced && !isSpawnTimingSafe(candidate)) {
+        spawnTimer = 0.15;
+        return;
+      }
+
+      obstacles.push(candidate);
 
       if (debugEnabled || forced) {
         console.log("Spawn obstacle", { type: isSnowball ? "snowball" : "iceberg", speed: worldSpeed });
@@ -544,6 +593,25 @@
       return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
     }
 
+    function segmentsIntersect(a, b, c, d) {
+      const cross = (p, q, r) =>
+        (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+      const contains = (p, q, r) =>
+        q.x >= Math.min(p.x, r.x) &&
+        q.x <= Math.max(p.x, r.x) &&
+        q.y >= Math.min(p.y, r.y) &&
+        q.y <= Math.max(p.y, r.y);
+      const abC = cross(a, b, c);
+      const abD = cross(a, b, d);
+      const cdA = cross(c, d, a);
+      const cdB = cross(c, d, b);
+      if (abC === 0 && contains(a, c, b)) return true;
+      if (abD === 0 && contains(a, d, b)) return true;
+      if (cdA === 0 && contains(c, a, d)) return true;
+      if (cdB === 0 && contains(c, b, d)) return true;
+      return abC * abD < 0 && cdA * cdB < 0;
+    }
+
     function triIntersectsRect(tri, rect) {
       const rectPoints = [
         { x: rect.x, y: rect.y },
@@ -576,7 +644,21 @@
       if (rectContainsPoint(rect, tri.cx, tri.cy)) {
         return true;
       }
-      return false;
+      const trianglePoints = [
+        { x: tri.ax, y: tri.ay },
+        { x: tri.bx, y: tri.by },
+        { x: tri.cx, y: tri.cy },
+      ];
+      const rectangleEdges = rectPoints.map((point, index) => [
+        point,
+        rectPoints[(index + 1) % rectPoints.length],
+      ]);
+      return trianglePoints.some((point, index) => {
+        const nextPoint = trianglePoints[(index + 1) % trianglePoints.length];
+        return rectangleEdges.some(([start, end]) =>
+          segmentsIntersect(point, nextPoint, start, end)
+        );
+      });
     }
 
     function getPlayerRenderBox() {
@@ -1263,6 +1345,10 @@
     }
 
     document.addEventListener("keydown", (event) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) {
+        event.preventDefault();
+      }
+
       if (state === GAME_STATE.GAME_OVER && isEnteringName) {
         handleNameInput(event);
         return;
