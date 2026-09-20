@@ -27,7 +27,7 @@ Ein schnelles 2D-Endlos-Runner-Spiel, in dem ein Pinguin durch eine Eishöhle ge
 - Esc – Zurück ins Hauptmenü
 
 ### Debug
-- F3 oder D – Debug-Overlay
+- F3 – Debug-Overlay
 - G – God Mode
 - 1 / 2 / 3 – Zeitlupe
 - P – Spiel pausieren

@@ -38,7 +38,7 @@ The gameplay video is stored directly in the repository and embedded using HTML 
 - Esc – Return to main menu
 
 ### Debug
-- F3 or D – Toggle debug overlay
+- F3 – Toggle debug overlay
 - G – God Mode
 - 1 / 2 / 3 – Slow motion levels
 - P – Freeze game
